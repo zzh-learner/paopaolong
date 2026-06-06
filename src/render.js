@@ -19,6 +19,15 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function getSettlementPanelLayout(height) {
+  const panelHeight = Math.min(300, Math.max(270, height * 0.5));
+
+  return {
+    height: panelHeight,
+    y: clamp(height * 0.21, 16, height - panelHeight - 16),
+  };
+}
+
 function drawCoverImage(ctx, image, width, height) {
   const imageRatio = image.width / image.height;
   const canvasRatio = width / height;
@@ -972,12 +981,13 @@ function drawPausedOverlay(ctx, snapshot) {
 
 function drawSettlementOverlay(ctx, snapshot) {
   const settlement = snapshot.settlement;
+  const panelLayout = getSettlementPanelLayout(snapshot.height);
   const panel = drawOverlayPanel(ctx, {
-    height: 260,
+    height: panelLayout.height,
     title: settlement?.title ?? '结算',
     viewportHeight: snapshot.height,
     width: snapshot.width,
-    y: snapshot.height * 0.28,
+    y: panelLayout.y,
   });
   const lines = [
     `分数 ${settlement?.score ?? snapshot.score}`,
@@ -987,19 +997,27 @@ function drawSettlementOverlay(ctx, snapshot) {
   ];
 
   ctx.save();
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.9)';
-  ctx.font = '700 15px system-ui, sans-serif';
+  ctx.fillStyle = '#fef08a';
+  ctx.font = '800 16px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.fillText(
+    settlement?.easterEggMessage ?? '谢谢你玩我的游戏',
+    snapshot.width / 2,
+    panel.y + 70,
+  );
+
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.9)';
+  ctx.font = '700 15px system-ui, sans-serif';
 
   lines.forEach((line, index) => {
-    ctx.fillText(line, snapshot.width / 2, panel.y + 82 + index * 25);
+    ctx.fillText(line, snapshot.width / 2, panel.y + 100 + index * 24);
   });
 
   if (settlement?.reason) {
     ctx.fillStyle = 'rgba(186, 230, 253, 0.84)';
     ctx.font = '600 12px system-ui, sans-serif';
-    ctx.fillText(settlement.reason, snapshot.width / 2, panel.y + 190);
+    ctx.fillText(settlement.reason, snapshot.width / 2, panel.y + 198);
   }
 
   ctx.restore();

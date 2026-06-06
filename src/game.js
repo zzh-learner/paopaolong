@@ -51,9 +51,19 @@ const LASER_BUBBLE_INTERVAL = 14;
 const LASER_BEAM_HALF_WIDTH_FACTOR = 0.62;
 const LASER_BEAM_MAX_BOUNCES = 2;
 const LASER_BEAM_MAX_DISTANCE_FACTOR = 1.55;
+const SETTLEMENT_EASTER_EGG_MESSAGE = '谢谢你玩我的游戏';
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getSettlementPanelLayout(height) {
+  const panelHeight = Math.min(300, Math.max(270, height * 0.5));
+
+  return {
+    height: panelHeight,
+    y: clamp(height * 0.21, 16, height - panelHeight - 16),
+  };
 }
 
 function normalizeDirection(direction) {
@@ -1110,6 +1120,7 @@ export class Game {
     this.settlementDelay = SETTLEMENT_DELAY;
     this.settlement = {
       activeColorCount: this.activeColorCount,
+      easterEggMessage: SETTLEMENT_EASTER_EGG_MESSAGE,
       outcome,
       pressureRowsAdded: this.pressureRowsAdded,
       reason,
@@ -1129,6 +1140,7 @@ export class Game {
       : 10;
 
     if (this.state === 'settlement') {
+      const panel = getSettlementPanelLayout(this.height);
       const modalWidth = Math.min(this.width - margin * 2, 340);
       const buttonWidth = Math.min(180, modalWidth - 48);
       const buttonHeight = 44;
@@ -1140,7 +1152,7 @@ export class Game {
         role: 'primary',
         width: buttonWidth,
         x: (this.width - buttonWidth) / 2,
-        y: this.height * 0.56,
+        y: panel.y + panel.height - buttonHeight - 18,
       });
 
       return controls;
