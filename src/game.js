@@ -15,6 +15,7 @@ import {
   gridToWorld,
   isBombBubbleColor,
   isLaserBubbleColor,
+  isSpecialBubbleColor,
   isValidCell,
   pickRandomBubbleColor,
 } from './grid.js';
@@ -87,8 +88,10 @@ export class Game {
     this.height = 0;
     this.hasInitializedGrid = false;
     this.dpr = 1;
+    this.debugEnabled = false;
     this.elapsed = 0;
     this.effects = [];
+    this.fps = 0;
     this.isPointerActive = false;
     this.launcher = null;
     this.missesSinceMatch = 0;
@@ -126,6 +129,13 @@ export class Game {
   }
 
   update(deltaTime) {
+    if (deltaTime > 0) {
+      const instantFps = 1 / deltaTime;
+      this.fps = this.fps
+        ? this.fps * 0.9 + instantFps * 0.1
+        : instantFps;
+    }
+
     if (
       this.state === 'loading'
       || this.state === 'paused'
@@ -288,6 +298,11 @@ export class Game {
 
     if (action === 'toggleSound') {
       this.audio.toggle();
+      return;
+    }
+
+    if (action === 'toggleDebug') {
+      this.debugEnabled = !this.debugEnabled;
     }
   }
 
@@ -472,7 +487,7 @@ export class Game {
 
     if (!attachCell) {
       this.flyingBubble = null;
-      this.endGame('gameOver', 'No space to attach the bubble.');
+      this.endGame('gameOver', '没有可吸附位置。');
       return;
     }
 
@@ -666,7 +681,7 @@ export class Game {
     this.createMatchEffects({
       dropScore,
       droppedWorldPositions,
-      popLabel: 'BOMB',
+      popLabel: '炸弹',
       poppedWorldPositions,
       popScore,
       scoreGained,
@@ -750,7 +765,7 @@ export class Game {
     this.createMatchEffects({
       dropScore,
       droppedWorldPositions,
-      popLabel: 'LASER',
+      popLabel: '激光',
       poppedWorldPositions,
       popScore,
       scoreGained,
@@ -870,7 +885,7 @@ export class Game {
   createMatchEffects({
     dropScore,
     droppedWorldPositions,
-    popLabel = 'POP',
+    popLabel = '消除',
     poppedWorldPositions,
     popScore,
     scoreGained,
@@ -905,7 +920,7 @@ export class Game {
       points: scoreGained,
       scoreParts: [
         { label: popLabel, points: popScore },
-        { label: 'DROP', points: dropScore },
+        { label: '掉落', points: dropScore },
       ].filter((part) => part.points > 0),
       x: centerX / poppedWorldPositions.length,
       y: centerY / poppedWorldPositions.length - radius * 0.8,
@@ -972,8 +987,8 @@ export class Game {
     this.shotsFired += 1;
     this.updateDifficultyProgress();
 
-    if (this.bubbles.length === 0) {
-      this.endGame('win', 'Board cleared.');
+    if (!this.hasOrdinaryBubbles()) {
+      this.endGame('win', '已清空普通泡泡。');
       return;
     }
 
@@ -1027,7 +1042,7 @@ export class Game {
       const shiftedRow = bubble.row + 1;
 
       if (!isValidCell(shiftedRow, bubble.col, this.gridLayout)) {
-        this.endGame('gameOver', 'Rows exceeded the play area.');
+        this.endGame('gameOver', '行数超过可玩区域。');
         return;
       }
 
@@ -1066,17 +1081,21 @@ export class Game {
 
     for (const bubble of this.bubbles) {
       if (!isValidCell(bubble.row, bubble.col, this.gridLayout)) {
-        return 'Rows exceeded the play area.';
+        return '行数超过可玩区域。';
       }
 
       const world = gridToWorld(bubble.row, bubble.col, this.gridLayout);
 
       if (world.y + radius >= this.gridLayout.dangerLineY) {
-        return 'Bubbles reached the danger line.';
+        return '泡泡触达危险线。';
       }
     }
 
     return '';
+  }
+
+  hasOrdinaryBubbles() {
+    return this.bubbles.some((bubble) => !isSpecialBubbleColor(bubble.color));
   }
 
   endGame(outcome, reason) {
@@ -1096,7 +1115,7 @@ export class Game {
       reason,
       score: this.score,
       shotsFired: this.shotsFired,
-      title: outcome === 'win' ? 'You Win' : 'Game Over',
+      title: outcome === 'win' ? '胜利' : '游戏结束',
     };
   }
 
@@ -1117,7 +1136,7 @@ export class Game {
       controls.push({
         action: 'restart',
         height: buttonHeight,
-        label: 'Restart',
+        label: '重新开始',
         role: 'primary',
         width: buttonWidth,
         x: (this.width - buttonWidth) / 2,
@@ -1162,7 +1181,8 @@ export class Game {
       const statusWidth = Math.max(54, Math.min(68, this.width * 0.155));
       const y = safeTop;
       const pauseX = this.width - margin - compactButtonWidth;
-      const soundX = pauseX - gap - statusWidth;
+      const debugX = pauseX - gap - statusWidth;
+      const soundX = debugX - gap - statusWidth;
 
       controls.push(
         {
@@ -1175,9 +1195,18 @@ export class Game {
           y,
         },
         {
+          action: 'toggleDebug',
+          height: smallHeight,
+          label: '调试',
+          role: this.debugEnabled ? 'toggleOn' : 'toggleOff',
+          width: statusWidth,
+          x: debugX,
+          y,
+        },
+        {
           action: 'pause',
           height: smallHeight,
-          label: 'II',
+          label: '暂停',
           role: 'secondary',
           width: compactButtonWidth,
           x: pauseX,
@@ -1198,11 +1227,13 @@ export class Game {
       bubbles: this.bubbles,
       controls: this.getControls(),
       currentBubble: this.currentBubble,
+      debugEnabled: this.debugEnabled,
       dpr: this.dpr,
       elapsed: this.elapsed,
       effects: this.effects,
       fallbackBackground: this.fallbackBackground,
       flyingBubble: this.flyingBubble,
+      fps: this.fps,
       gridLayout: this.gridLayout,
       height: this.height,
       inputLocked: Boolean(

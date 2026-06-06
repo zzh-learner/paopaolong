@@ -3,6 +3,17 @@ import { gridToWorld } from './grid.js';
 const BUBBLE_IMAGE_SCALE = 1.08;
 const LAUNCHER_CENTER_Y_RATIO = 0.61;
 const LAUNCHER_SOCKET_RADIUS_RATIO = 0.205;
+const STATE_LABELS = {
+  aiming: '瞄准',
+  gameOver: '失败',
+  loading: '加载',
+  paused: '暂停',
+  ready: '准备',
+  resolving: '结算中',
+  settlement: '结算',
+  shooting: '飞行',
+  win: '胜利',
+};
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -498,6 +509,42 @@ function drawGridBubble(ctx, bubble, layout) {
   });
 }
 
+function drawDebugVisuals(ctx, snapshot) {
+  const { debugEnabled, flyingBubble, gridLayout, bubbles } = snapshot;
+
+  if (!debugEnabled || !gridLayout) {
+    return;
+  }
+
+  const radius = gridLayout.bubbleRadius * 0.92;
+
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.82)';
+  ctx.fillStyle = 'rgba(254, 249, 195, 0.92)';
+  ctx.font = `700 ${Math.max(9, Math.min(12, gridLayout.bubbleRadius * 0.45))}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (const bubble of bubbles) {
+    const { x, y } = gridToWorld(bubble.row, bubble.col, gridLayout);
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillText(`${bubble.row},${bubble.col}`, x, y);
+  }
+
+  if (flyingBubble) {
+    ctx.strokeStyle = 'rgba(248, 113, 113, 0.9)';
+    ctx.beginPath();
+    ctx.arc(flyingBubble.x, flyingBubble.y, flyingBubble.radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function drawDangerLine(ctx, layout) {
   const y = layout.dangerLineY;
 
@@ -927,16 +974,16 @@ function drawSettlementOverlay(ctx, snapshot) {
   const settlement = snapshot.settlement;
   const panel = drawOverlayPanel(ctx, {
     height: 260,
-    title: settlement?.title ?? 'Settlement',
+    title: settlement?.title ?? '结算',
     viewportHeight: snapshot.height,
     width: snapshot.width,
     y: snapshot.height * 0.28,
   });
   const lines = [
-    `Score ${settlement?.score ?? snapshot.score}`,
-    `Shots ${settlement?.shotsFired ?? snapshot.shotsFired}`,
-    `Pressure Rows ${settlement?.pressureRowsAdded ?? snapshot.pressureRowsAdded}`,
-    `Colors ${settlement?.activeColorCount ?? snapshot.activeColorCount}`,
+    `分数 ${settlement?.score ?? snapshot.score}`,
+    `发射 ${settlement?.shotsFired ?? snapshot.shotsFired}`,
+    `压力行 ${settlement?.pressureRowsAdded ?? snapshot.pressureRowsAdded}`,
+    `颜色 ${settlement?.activeColorCount ?? snapshot.activeColorCount}`,
   ];
 
   ctx.save();
@@ -966,7 +1013,7 @@ function drawEndTransitionOverlay(ctx, snapshot) {
   ctx.font = '800 30px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(snapshot.state === 'win' ? 'You Win' : 'Game Over', snapshot.width / 2, snapshot.height * 0.46);
+  ctx.fillText(snapshot.state === 'win' ? '胜利' : '游戏结束', snapshot.width / 2, snapshot.height * 0.46);
   ctx.restore();
 }
 
@@ -978,7 +1025,46 @@ function drawLoading(ctx, snapshot) {
   ctx.font = '800 24px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('Loading', snapshot.width / 2, snapshot.height / 2);
+  ctx.fillText('加载中', snapshot.width / 2, snapshot.height / 2);
+  ctx.restore();
+}
+
+function drawDebugPanel(ctx, snapshot) {
+  if (!snapshot.debugEnabled) {
+    return;
+  }
+
+  const width = Math.min(184, snapshot.width - 20);
+  const lineHeight = 17;
+  const lines = [
+    `状态：${STATE_LABELS[snapshot.state] ?? snapshot.state}`,
+    `帧率：${Math.round(snapshot.fps || 0)}`,
+    `泡泡：${snapshot.bubbles?.length ?? 0}`,
+    `发射：${snapshot.shotsFired ?? 0}`,
+    `失误：${snapshot.missesSinceMatch ?? 0}/${snapshot.missesBeforePressureRow ?? 0}`,
+  ];
+  const x = 10;
+  const y = Math.max(10, (snapshot.gridLayout?.hudHeight ?? 0) + 8);
+  const height = 14 + lines.length * lineHeight;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  drawRoundedRect(ctx, x, y, width, height, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(254, 249, 195, 0.95)';
+  ctx.font = '700 12px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  lines.forEach((line, index) => {
+    ctx.fillText(line, x + 10, y + 8 + index * lineHeight);
+  });
+
   ctx.restore();
 }
 
@@ -1059,6 +1145,8 @@ export function render(ctx, snapshot) {
 
   drawBackgroundWash(ctx, width, height);
   drawScene(ctx, snapshot);
+  drawDebugVisuals(ctx, snapshot);
   drawStateOverlay(ctx, snapshot);
   drawControls(ctx, snapshot.controls);
+  drawDebugPanel(ctx, snapshot);
 }

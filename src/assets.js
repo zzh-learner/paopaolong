@@ -6,20 +6,20 @@ import {
 } from './grid.js';
 
 const ASSET_PATHS = {
-  background: './images/游戏背景.png',
-  launcher: './images/processed/launcher.png',
+  background: './images/used/background/game-background.png',
+  launcher: './images/used/launcher/launcher.png',
   bubbles: {
-    blue: './images/bubble-blue.jpg',
-    cyan: './images/bubble-cyan.jpg',
-    green: './images/bubble-green.jpg',
-    purple: './images/bubble-purple.jpg',
-    red: './images/bubble-red.jpg',
-    yellow: './images/bubble-yellow.jpg',
+    blue: './images/used/bubbles/bubble-blue.webp',
+    cyan: './images/used/bubbles/bubble-cyan.webp',
+    green: './images/used/bubbles/bubble-green.webp',
+    purple: './images/used/bubbles/bubble-purple.webp',
+    red: './images/used/bubbles/bubble-red.webp',
+    yellow: './images/used/bubbles/bubble-yellow.webp',
   },
   specialBubbles: {
-    bomb: './images/炸弹泡泡.png',
-    laser: './images/激光泡泡.png',
-    rainbow: './images/彩色泡泡.png',
+    bomb: './images/used/special-bubbles/bomb.png',
+    laser: './images/used/special-bubbles/laser.png',
+    rainbow: './images/used/special-bubbles/rainbow.png',
   },
 };
 
