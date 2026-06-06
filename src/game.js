@@ -1,14 +1,20 @@
 import {
+  BOMB_BUBBLE,
   BUBBLE_COLORS,
+  LASER_BUBBLE,
+  RAINBOW_BUBBLE,
   cellKey,
   createGridLayout,
   createInitialBubbles,
   findFloatingBubbles as findGridFloatingBubbles,
   findSameColorCluster as findGridSameColorCluster,
   getColumnsForRow,
+  getNeighbors,
   findNearestOpenCell,
   findNearestOpenNeighbor,
   gridToWorld,
+  isBombBubbleColor,
+  isLaserBubbleColor,
   isValidCell,
   pickRandomBubbleColor,
 } from './grid.js';
@@ -38,6 +44,29 @@ const MATCH_MIN_CLUSTER_SIZE = 3;
 const MISSES_BEFORE_PRESSURE_ROW = 4;
 const SETTLEMENT_DELAY = 0.42;
 const POP_RESOLVE_DURATION = 0.38;
+const BOMB_BUBBLE_INTERVAL = 6;
+const RAINBOW_BUBBLE_INTERVAL = 10;
+const LASER_BUBBLE_INTERVAL = 14;
+const LASER_BEAM_HALF_WIDTH_FACTOR = 0.62;
+const LASER_BEAM_MAX_BOUNCES = 2;
+const LASER_BEAM_MAX_DISTANCE_FACTOR = 1.55;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeDirection(direction) {
+  const length = Math.hypot(direction?.x ?? 0, direction?.y ?? 0);
+
+  if (!length) {
+    return { x: 0, y: -1 };
+  }
+
+  return {
+    x: direction.x / length,
+    y: direction.y / length,
+  };
+}
 
 export class Game {
   constructor({ assets }) {
@@ -46,9 +75,12 @@ export class Game {
     this.audio = new AudioFeedback();
     this.aimDirection = { x: 0, y: -1 };
     this.aimTrajectory = [];
+    this.activeShotDirection = null;
+    this.activeShotOrigin = null;
     this.bubbles = [];
     this.cellColors = new Map();
-    this.currentBubble = this.pickPlayableColor();
+    this.shotBubbleSequence = 0;
+    this.currentBubble = this.pickShooterBubble();
     this.flyingBubble = null;
     this.gridLayout = null;
     this.width = 0;
@@ -60,7 +92,7 @@ export class Game {
     this.isPointerActive = false;
     this.launcher = null;
     this.missesSinceMatch = 0;
-    this.nextBubble = this.pickPlayableColor();
+    this.nextBubble = this.pickShooterBubble();
     this.pendingShotHadMatch = false;
     this.pressureRowsAdded = 0;
     this.previousState = 'ready';
@@ -154,6 +186,24 @@ export class Game {
 
   pickPlayableColor() {
     return pickRandomBubbleColor();
+  }
+
+  pickShooterBubble() {
+    this.shotBubbleSequence += 1;
+
+    if (this.shotBubbleSequence % LASER_BUBBLE_INTERVAL === 0) {
+      return LASER_BUBBLE;
+    }
+
+    if (this.shotBubbleSequence % RAINBOW_BUBBLE_INTERVAL === 0) {
+      return RAINBOW_BUBBLE;
+    }
+
+    if (this.shotBubbleSequence % BOMB_BUBBLE_INTERVAL === 0) {
+      return BOMB_BUBBLE;
+    }
+
+    return this.pickPlayableColor();
   }
 
   removeInvalidBubblesAfterResize() {
@@ -264,15 +314,18 @@ export class Game {
     this.activeColorCount = BUBBLE_COLORS.length;
     this.aimDirection = { x: 0, y: -1 };
     this.aimTrajectory = [];
+    this.activeShotDirection = null;
+    this.activeShotOrigin = null;
     this.bubbles = [];
     this.cellColors.clear();
-    this.currentBubble = this.pickPlayableColor();
+    this.shotBubbleSequence = 0;
+    this.currentBubble = this.pickShooterBubble();
     this.effects = [];
     this.flyingBubble = null;
     this.hasInitializedGrid = Boolean(this.gridLayout);
     this.isPointerActive = false;
     this.missesSinceMatch = 0;
-    this.nextBubble = this.pickPlayableColor();
+    this.nextBubble = this.pickShooterBubble();
     this.pendingShotHadMatch = false;
     this.pressureRowsAdded = 0;
     this.previousState = 'ready';
@@ -357,6 +410,11 @@ export class Game {
       x: this.launcher.launchX,
       y: this.launcher.launchY,
     });
+    this.activeShotDirection = normalizeDirection(this.aimDirection);
+    this.activeShotOrigin = {
+      x: this.launcher.launchX,
+      y: this.launcher.launchY,
+    };
     this.currentBubble = null;
     this.aimTrajectory = [];
     this.state = 'shooting';
@@ -430,7 +488,16 @@ export class Game {
     this.audio.playCollision();
     vibrate(8);
 
-    const resolution = this.resolveSameColorMatch(bubble.row, bubble.col);
+    let resolution = null;
+
+    if (isBombBubbleColor(bubble.color)) {
+      resolution = this.resolveBombBubble(bubble.row, bubble.col);
+    } else if (isLaserBubbleColor(bubble.color)) {
+      resolution = this.resolveLaserBubble(bubble.row, bubble.col);
+    } else {
+      resolution = this.resolveSameColorMatch(bubble.row, bubble.col);
+    }
+
     this.pendingShotHadMatch = resolution.removedCount > 0;
 
     if (resolution.duration > 0) {
@@ -528,9 +595,282 @@ export class Game {
     };
   }
 
+  resolveBombBubble(row, col) {
+    const bubbleByCell = new Map(
+      this.bubbles.map((bubble) => [cellKey(bubble.row, bubble.col), bubble]),
+    );
+    const blastedCells = new Set([cellKey(row, col)]);
+
+    for (const neighbor of getNeighbors(row, col, this.gridLayout)) {
+      const key = cellKey(neighbor.row, neighbor.col);
+
+      if (bubbleByCell.has(key)) {
+        blastedCells.add(key);
+      }
+    }
+
+    const blastedBubbles = this.bubbles.filter((bubble) => (
+      blastedCells.has(cellKey(bubble.row, bubble.col))
+    ));
+    const poppedWorldPositions = blastedBubbles.map((bubble) => ({
+      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
+      color: bubble.color,
+    }));
+
+    this.bubbles = this.bubbles.filter((bubble) => {
+      const key = cellKey(bubble.row, bubble.col);
+
+      if (blastedCells.has(key)) {
+        this.cellColors.delete(key);
+        return false;
+      }
+
+      return true;
+    });
+
+    const floatingBubbles = this.findFloatingBubbles();
+    const dropScore = calculateDropScore(floatingBubbles.length);
+    const droppedWorldPositions = floatingBubbles.map((bubble) => ({
+      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
+      color: bubble.color,
+    }));
+    const floatingCells = new Set(
+      floatingBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
+    );
+
+    if (floatingCells.size > 0) {
+      this.bubbles = this.bubbles.filter((bubble) => {
+        const key = cellKey(bubble.row, bubble.col);
+
+        if (floatingCells.has(key)) {
+          this.cellColors.delete(key);
+          return false;
+        }
+
+        return true;
+      });
+    }
+
+    const popScore = calculatePopScore(blastedBubbles.length);
+    const scoreGained = popScore + dropScore;
+    this.score += scoreGained;
+    this.audio.playPop(Math.max(2, blastedBubbles.length));
+
+    if (floatingBubbles.length > 0) {
+      this.audio.playDrop(floatingBubbles.length);
+      vibrate([18, 22, 18]);
+    } else {
+      vibrate(24);
+    }
+
+    this.createMatchEffects({
+      dropScore,
+      droppedWorldPositions,
+      popLabel: 'BOMB',
+      poppedWorldPositions,
+      popScore,
+      scoreGained,
+    });
+
+    return {
+      duration: Math.max(
+        POP_RESOLVE_DURATION,
+        droppedWorldPositions.length ? FALLING_BUBBLE_DURATION : 0,
+      ),
+      removedCount: blastedBubbles.length + floatingBubbles.length,
+    };
+  }
+
+  resolveLaserBubble(row, col) {
+    const beamSegments = this.getLaserBeamSegments();
+    const beamHalfWidth = this.gridLayout.bubbleRadius * LASER_BEAM_HALF_WIDTH_FACTOR;
+    const attachedLaserKey = cellKey(row, col);
+    const clearedBubbles = this.bubbles.filter((bubble) => {
+      const key = cellKey(bubble.row, bubble.col);
+
+      return (
+        key === attachedLaserKey
+        || this.isBubbleOnLaserPath(bubble, beamSegments, beamHalfWidth)
+      );
+    });
+    const clearedCells = new Set(
+      clearedBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
+    );
+    const poppedWorldPositions = clearedBubbles.map((bubble) => ({
+      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
+      color: bubble.color,
+    }));
+
+    this.bubbles = this.bubbles.filter((bubble) => {
+      const key = cellKey(bubble.row, bubble.col);
+
+      if (clearedCells.has(key)) {
+        this.cellColors.delete(key);
+        return false;
+      }
+
+      return true;
+    });
+
+    const floatingBubbles = this.findFloatingBubbles();
+    const dropScore = calculateDropScore(floatingBubbles.length);
+    const droppedWorldPositions = floatingBubbles.map((bubble) => ({
+      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
+      color: bubble.color,
+    }));
+    const floatingCells = new Set(
+      floatingBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
+    );
+
+    if (floatingCells.size > 0) {
+      this.bubbles = this.bubbles.filter((bubble) => {
+        const key = cellKey(bubble.row, bubble.col);
+
+        if (floatingCells.has(key)) {
+          this.cellColors.delete(key);
+          return false;
+        }
+
+        return true;
+      });
+    }
+
+    const popScore = calculatePopScore(clearedBubbles.length);
+    const scoreGained = popScore + dropScore;
+    this.score += scoreGained;
+    this.audio.playPop(Math.max(2, clearedBubbles.length));
+
+    if (floatingBubbles.length > 0) {
+      this.audio.playDrop(floatingBubbles.length);
+      vibrate([10, 18, 10, 22]);
+    } else {
+      vibrate([10, 20]);
+    }
+
+    this.createMatchEffects({
+      dropScore,
+      droppedWorldPositions,
+      popLabel: 'LASER',
+      poppedWorldPositions,
+      popScore,
+      scoreGained,
+    });
+
+    return {
+      duration: Math.max(
+        POP_RESOLVE_DURATION,
+        droppedWorldPositions.length ? FALLING_BUBBLE_DURATION : 0,
+      ),
+      removedCount: clearedBubbles.length + floatingBubbles.length,
+    };
+  }
+
+  getLaserBeamSegments() {
+    if (!this.gridLayout || !this.launcher) {
+      return [];
+    }
+
+    const bounds = getWallBounds(this.gridLayout);
+    const radius = this.gridLayout.bubbleRadius * 0.92;
+    const origin = this.activeShotOrigin ?? {
+      x: this.launcher.launchX,
+      y: this.launcher.launchY,
+    };
+    let ray = normalizeDirection(this.activeShotDirection ?? this.aimDirection);
+    let current = { ...origin };
+    let remainingDistance = this.height * LASER_BEAM_MAX_DISTANCE_FACTOR;
+    let bounceCount = 0;
+    const segments = [];
+
+    while (remainingDistance > 0) {
+      const distances = [];
+
+      if (ray.y < 0) {
+        distances.push({
+          type: 'top',
+          value: (bounds.top + radius - current.y) / ray.y,
+        });
+      }
+
+      if (ray.x < 0) {
+        distances.push({
+          type: 'left',
+          value: (bounds.left + radius - current.x) / ray.x,
+        });
+      }
+
+      if (ray.x > 0) {
+        distances.push({
+          type: 'right',
+          value: (bounds.right - radius - current.x) / ray.x,
+        });
+      }
+
+      const nextHit = distances
+        .filter((distance) => distance.value > 0.001)
+        .sort((a, b) => a.value - b.value)[0];
+      const travel = Math.min(nextHit?.value ?? remainingDistance, remainingDistance);
+      const end = {
+        x: current.x + ray.x * travel,
+        y: current.y + ray.y * travel,
+      };
+
+      segments.push({
+        end,
+        start: current,
+      });
+      remainingDistance -= travel;
+
+      if (!nextHit || nextHit.type === 'top' || bounceCount >= LASER_BEAM_MAX_BOUNCES) {
+        break;
+      }
+
+      current = end;
+      ray = {
+        x: -ray.x,
+        y: ray.y,
+      };
+      bounceCount += 1;
+    }
+
+    return segments;
+  }
+
+  isBubbleOnLaserPath(bubble, beamSegments, beamHalfWidth) {
+    const world = gridToWorld(bubble.row, bubble.col, this.gridLayout);
+
+    return beamSegments.some((segment) => (
+      this.getDistanceToLaserSegment(world, segment) <= beamHalfWidth
+    ));
+  }
+
+  getDistanceToLaserSegment(point, segment) {
+    const segmentX = segment.end.x - segment.start.x;
+    const segmentY = segment.end.y - segment.start.y;
+    const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+
+    if (!segmentLengthSquared) {
+      return Math.hypot(point.x - segment.start.x, point.y - segment.start.y);
+    }
+
+    const projection = clamp(
+      ((point.x - segment.start.x) * segmentX + (point.y - segment.start.y) * segmentY)
+        / segmentLengthSquared,
+      0,
+      1,
+    );
+    const closest = {
+      x: segment.start.x + segmentX * projection,
+      y: segment.start.y + segmentY * projection,
+    };
+
+    return Math.hypot(point.x - closest.x, point.y - closest.y);
+  }
+
   createMatchEffects({
     dropScore,
     droppedWorldPositions,
+    popLabel = 'POP',
     poppedWorldPositions,
     popScore,
     scoreGained,
@@ -564,7 +904,7 @@ export class Game {
     this.effects.push(createDetailedScorePopup({
       points: scoreGained,
       scoreParts: [
-        { label: 'POP', points: popScore },
+        { label: popLabel, points: popScore },
         { label: 'DROP', points: dropScore },
       ].filter((part) => part.points > 0),
       x: centerX / poppedWorldPositions.length,
@@ -620,6 +960,8 @@ export class Game {
 
   finishShot({ hadMatch = false } = {}) {
     this.flyingBubble = null;
+    this.activeShotDirection = null;
+    this.activeShotOrigin = null;
     this.resolveCooldown = 0;
     this.pendingShotHadMatch = false;
 
@@ -658,7 +1000,7 @@ export class Game {
     }
 
     this.currentBubble = this.nextBubble;
-    this.nextBubble = this.pickPlayableColor();
+    this.nextBubble = this.pickShooterBubble();
     this.state = 'ready';
     this.refreshAimTrajectory();
   }
@@ -742,6 +1084,8 @@ export class Game {
     this.previousState = outcome;
     this.isPointerActive = false;
     this.flyingBubble = null;
+    this.activeShotDirection = null;
+    this.activeShotOrigin = null;
     this.aimTrajectory = [];
     this.resolveCooldown = 0;
     this.settlementDelay = SETTLEMENT_DELAY;
@@ -758,10 +1102,12 @@ export class Game {
 
   getControls() {
     const controls = [];
-    const safeTop = Math.max(10, this.gridLayout ? this.gridLayout.top * 0.35 : 10);
     const margin = Math.max(10, this.width * 0.025);
     const gap = 8;
     const smallHeight = Math.max(36, Math.min(44, this.height * 0.052));
+    const safeTop = this.gridLayout?.hudHeight
+      ? Math.max(8, (this.gridLayout.hudHeight - smallHeight) / 2)
+      : 10;
 
     if (this.state === 'settlement') {
       const modalWidth = Math.min(this.width - margin * 2, 340);
@@ -791,7 +1137,7 @@ export class Game {
         {
           action: 'continue',
           height: buttonHeight,
-          label: 'Continue',
+          label: '继续游戏',
           role: 'primary',
           width: buttonWidth,
           x,
@@ -800,7 +1146,7 @@ export class Game {
         {
           action: 'restart',
           height: buttonHeight,
-          label: 'Restart',
+          label: '重新开始',
           role: 'secondary',
           width: buttonWidth,
           x,
@@ -815,15 +1161,14 @@ export class Game {
       const compactButtonWidth = Math.max(44, Math.min(58, this.width * 0.135));
       const statusWidth = Math.max(54, Math.min(68, this.width * 0.155));
       const y = safeTop;
-      const restartX = this.width - margin - compactButtonWidth;
-      const pauseX = restartX - gap - compactButtonWidth;
+      const pauseX = this.width - margin - compactButtonWidth;
       const soundX = pauseX - gap - statusWidth;
 
       controls.push(
         {
           action: 'toggleSound',
           height: smallHeight,
-          label: 'SFX',
+          label: '音效',
           role: this.audio.enabled ? 'toggleOn' : 'toggleOff',
           width: statusWidth,
           x: soundX,
@@ -836,15 +1181,6 @@ export class Game {
           role: 'secondary',
           width: compactButtonWidth,
           x: pauseX,
-          y,
-        },
-        {
-          action: 'restart',
-          height: smallHeight,
-          label: 'R',
-          role: 'secondary',
-          width: compactButtonWidth,
-          x: restartX,
           y,
         },
       );

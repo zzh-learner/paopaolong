@@ -1,15 +1,25 @@
-import { BUBBLE_COLORS } from './grid.js';
+import {
+  BOMB_BUBBLE,
+  BUBBLE_COLORS,
+  LASER_BUBBLE,
+  RAINBOW_BUBBLE,
+} from './grid.js';
 
 const ASSET_PATHS = {
   background: './images/游戏背景.png',
   launcher: './images/processed/launcher.png',
   bubbles: {
-    blue: './images/bubble-blue.png',
-    cyan: './images/bubble-cyan.png',
-    green: './images/bubble-green.png',
-    purple: './images/bubble-purple.png',
-    red: './images/bubble-red.png',
-    yellow: './images/bubble-yellow.png',
+    blue: './images/bubble-blue.jpg',
+    cyan: './images/bubble-cyan.jpg',
+    green: './images/bubble-green.jpg',
+    purple: './images/bubble-purple.jpg',
+    red: './images/bubble-red.jpg',
+    yellow: './images/bubble-yellow.jpg',
+  },
+  specialBubbles: {
+    bomb: './images/炸弹泡泡.png',
+    laser: './images/激光泡泡.png',
+    rainbow: './images/彩色泡泡.png',
   },
 };
 
@@ -30,6 +40,7 @@ export async function loadAssets() {
     bubbleImages: {},
     launcher: null,
     launcherLoaded: false,
+    specialBubbleImages: {},
   };
 
   try {
@@ -61,6 +72,30 @@ export async function loadAssets() {
       console.warn(error.message);
     }
   }));
+
+  try {
+    const image = await loadImage(ASSET_PATHS.specialBubbles.bomb);
+    BOMB_BUBBLE.image = image;
+    assets.specialBubbleImages.bomb = image;
+  } catch (error) {
+    console.warn(error.message);
+  }
+
+  try {
+    const image = await loadImage(ASSET_PATHS.specialBubbles.rainbow);
+    RAINBOW_BUBBLE.image = image;
+    assets.specialBubbleImages.rainbow = image;
+  } catch (error) {
+    console.warn(error.message);
+  }
+
+  try {
+    const image = await loadImage(ASSET_PATHS.specialBubbles.laser);
+    LASER_BUBBLE.image = image;
+    assets.specialBubbleImages.laser = image;
+  } catch (error) {
+    console.warn(error.message);
+  }
 
   return assets;
 }

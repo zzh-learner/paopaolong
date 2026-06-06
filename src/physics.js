@@ -43,7 +43,7 @@ export function getWallBounds(layout) {
   return {
     left: 0,
     right: layout.width,
-    top: 0,
+    top: layout.top,
   };
 }
 

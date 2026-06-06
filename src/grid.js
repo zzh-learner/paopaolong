@@ -39,6 +39,33 @@ export const BUBBLE_COLORS = [
   },
 ];
 
+export const BOMB_BUBBLE = {
+  id: 'bomb',
+  type: 'special',
+  special: 'bomb',
+  fill: '#1f2937',
+  highlight: '#fde68a',
+  shadow: '#020617',
+};
+
+export const RAINBOW_BUBBLE = {
+  id: 'rainbow',
+  type: 'special',
+  special: 'rainbow',
+  fill: '#f472b6',
+  highlight: '#fef3c7',
+  shadow: '#312e81',
+};
+
+export const LASER_BUBBLE = {
+  id: 'laser',
+  type: 'special',
+  special: 'laser',
+  fill: '#38bdf8',
+  highlight: '#e0f2fe',
+  shadow: '#0c4a6e',
+};
+
 const MIN_BUBBLE_RADIUS = 12;
 const MAX_BUBBLE_RADIUS = 24;
 const MIN_COLUMNS = 4;
@@ -58,6 +85,8 @@ function assertLayout(layout) {
 
 export function createGridLayout({ width, height }) {
   const sideMargin = Math.max(12, Math.round(width * 0.04));
+  const hudHeight = clamp(height * 0.075, 58, 82);
+  const playTopPadding = clamp(height * 0.014, 8, 14);
   const radius = clamp(
     Math.min(width / 20, height / 28),
     MIN_BUBBLE_RADIUS,
@@ -71,7 +100,7 @@ export function createGridLayout({ width, height }) {
   );
   const usedWidth = columns * colSpacing + radius;
   const left = Math.max(6, (width - usedWidth) / 2);
-  const top = clamp(height * 0.035, 18, 34);
+  const top = hudHeight + playTopPadding;
   const launcherAreaHeight = clamp(height * 0.22, 104, 176);
   const initialGridBottom = top + radius * 2 + rowSpacing * (INITIAL_GRID_ROWS - 1);
   const dangerLineY = Math.max(
@@ -89,6 +118,7 @@ export function createGridLayout({ width, height }) {
     columns,
     dangerLineY,
     height,
+    hudHeight,
     left,
     maxRows,
     rowSpacing,
@@ -295,7 +325,34 @@ export function findSameColorCluster(row, col, bubbles, layout = activeLayout) {
     return [];
   }
 
-  const targetColorId = startBubble.color?.id ?? startBubble.color;
+  const targetColorIds = getClusterCandidateColorIds(startBubble.color, bubbles);
+  let bestCluster = [];
+
+  for (const targetColorId of targetColorIds) {
+    const cluster = collectColorCluster({
+      bubbleByCell,
+      col,
+      layout,
+      row,
+      targetColorId,
+    });
+
+    if (cluster.length > bestCluster.length) {
+      bestCluster = cluster;
+    }
+  }
+
+  return bestCluster;
+}
+
+function collectColorCluster({
+  bubbleByCell,
+  col,
+  layout,
+  row,
+  targetColorId,
+}) {
+  const startKey = cellKey(row, col);
   const visited = new Set([startKey]);
   const cluster = [];
   const stack = [{ row, col }];
@@ -303,9 +360,8 @@ export function findSameColorCluster(row, col, bubbles, layout = activeLayout) {
   while (stack.length > 0) {
     const current = stack.pop();
     const currentBubble = bubbleByCell.get(cellKey(current.row, current.col));
-    const currentColorId = currentBubble?.color?.id ?? currentBubble?.color;
 
-    if (!currentBubble || currentColorId !== targetColorId) {
+    if (!currentBubble || !matchesClusterColor(currentBubble.color, targetColorId)) {
       continue;
     }
 
@@ -313,22 +369,55 @@ export function findSameColorCluster(row, col, bubbles, layout = activeLayout) {
 
     for (const neighbor of getNeighbors(current.row, current.col, layout)) {
       const neighborKey = cellKey(neighbor.row, neighbor.col);
+      const neighborBubble = bubbleByCell.get(neighborKey);
 
-      if (visited.has(neighborKey)) {
+      if (
+        visited.has(neighborKey)
+        || !neighborBubble
+        || !matchesClusterColor(neighborBubble.color, targetColorId)
+      ) {
         continue;
       }
 
-      const neighborBubble = bubbleByCell.get(neighborKey);
-      const neighborColorId = neighborBubble?.color?.id ?? neighborBubble?.color;
-
-      if (neighborBubble && neighborColorId === targetColorId) {
-        visited.add(neighborKey);
-        stack.push(neighbor);
-      }
+      visited.add(neighborKey);
+      stack.push(neighbor);
     }
   }
 
   return cluster;
+}
+
+function getClusterCandidateColorIds(startColor, bubbles) {
+  if (isSpecialBubbleColor(startColor) && !isRainbowBubbleColor(startColor)) {
+    return [];
+  }
+
+  if (!isRainbowBubbleColor(startColor)) {
+    return [getColorId(startColor)];
+  }
+
+  const presentColorIds = new Set(
+    bubbles
+      .map((bubble) => bubble.color)
+      .filter((color) => !isSpecialBubbleColor(color))
+      .map(getColorId)
+      .filter(Boolean),
+  );
+
+  return BUBBLE_COLORS
+    .map((color) => color.id)
+    .filter((colorId) => presentColorIds.has(colorId));
+}
+
+function matchesClusterColor(color, targetColorId) {
+  return (
+    isRainbowBubbleColor(color)
+    || (!isSpecialBubbleColor(color) && getColorId(color) === targetColorId)
+  );
+}
+
+function getColorId(color) {
+  return color?.id ?? color;
 }
 
 export function findFloatingBubbles(bubbles, layout = activeLayout) {
@@ -368,6 +457,22 @@ export function findFloatingBubbles(bubbles, layout = activeLayout) {
   return bubbles.filter((bubble) => (
     !connectedToTop.has(cellKey(bubble.row, bubble.col))
   ));
+}
+
+export function isBombBubbleColor(color) {
+  return color?.type === 'special' && color.special === 'bomb';
+}
+
+export function isRainbowBubbleColor(color) {
+  return color?.type === 'special' && color.special === 'rainbow';
+}
+
+export function isLaserBubbleColor(color) {
+  return color?.type === 'special' && color.special === 'laser';
+}
+
+export function isSpecialBubbleColor(color) {
+  return color?.type === 'special';
 }
 
 export function pickRandomBubbleColor(colorCount = BUBBLE_COLORS.length) {

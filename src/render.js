@@ -38,9 +38,116 @@ function drawCoverImage(ctx, image, width, height) {
   );
 }
 
+function drawCoverImageAt(ctx, image, x, y, width, height) {
+  const imageRatio = image.width / image.height;
+  const targetRatio = width / height;
+
+  let sourceX = 0;
+  let sourceY = 0;
+  let sourceWidth = image.width;
+  let sourceHeight = image.height;
+
+  if (imageRatio > targetRatio) {
+    sourceWidth = image.height * targetRatio;
+    sourceX = (image.width - sourceWidth) / 2;
+  } else {
+    sourceHeight = image.width / targetRatio;
+    sourceY = (image.height - sourceHeight) / 2;
+  }
+
+  ctx.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    x,
+    y,
+    width,
+    height,
+  );
+}
+
 function drawFallbackBackground(ctx, width, height, color) {
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, width, height);
+}
+
+function drawBombBubbleAccent(ctx, { alpha = 1, radius, x, y }) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = 'rgba(251, 146, 60, 0.7)';
+  ctx.shadowBlur = Math.max(8, radius * 0.56);
+  ctx.lineWidth = Math.max(2, radius * 0.12);
+  ctx.strokeStyle = 'rgba(251, 146, 60, 0.95)';
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 1.05, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.shadowBlur = Math.max(6, radius * 0.38);
+  ctx.fillStyle = '#facc15';
+  ctx.beginPath();
+  ctx.arc(x + radius * 0.45, y - radius * 0.52, radius * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRainbowBubbleAccent(ctx, { alpha = 1, radius, x, y }) {
+  const colors = ['#ef4444', '#facc15', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7'];
+  const segment = (Math.PI * 2) / colors.length;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = Math.max(2, radius * 0.13);
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(255, 255, 255, 0.46)';
+  ctx.shadowBlur = Math.max(7, radius * 0.46);
+
+  for (let index = 0; index < colors.length; index += 1) {
+    ctx.beginPath();
+    ctx.strokeStyle = colors[index];
+    ctx.arc(
+      x,
+      y,
+      radius * 1.06,
+      -Math.PI / 2 + index * segment + 0.04,
+      -Math.PI / 2 + (index + 1) * segment - 0.04,
+    );
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.86)';
+  ctx.beginPath();
+  ctx.arc(x - radius * 0.42, y - radius * 0.44, radius * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawLaserBubbleAccent(ctx, { alpha = 1, radius, x, y }) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = 'rgba(56, 189, 248, 0.72)';
+  ctx.shadowBlur = Math.max(8, radius * 0.58);
+  ctx.lineWidth = Math.max(2, radius * 0.12);
+  ctx.strokeStyle = 'rgba(125, 211, 252, 0.96)';
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 1.05, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.lineWidth = Math.max(2, radius * 0.11);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(224, 242, 254, 0.94)';
+  ctx.beginPath();
+  ctx.moveTo(x - radius * 0.58, y + radius * 0.12);
+  ctx.lineTo(x + radius * 0.58, y - radius * 0.12);
+  ctx.stroke();
+
+  ctx.lineWidth = Math.max(1, radius * 0.05);
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.92)';
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 0.42, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawBackgroundWash(ctx, width, height) {
@@ -58,15 +165,53 @@ function drawBackgroundWash(ctx, width, height) {
 
 function drawBubbleAt(ctx, { alpha = 1, color, radius, x, y }) {
   if (color?.image) {
-    const size = radius * 2 * BUBBLE_IMAGE_SCALE;
+    const imageScale = color.type === 'special'
+      ? BUBBLE_IMAGE_SCALE * 1.18
+      : BUBBLE_IMAGE_SCALE;
+    const size = radius * 2 * imageScale;
 
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.34)';
     ctx.shadowBlur = Math.max(5, radius * 0.44);
     ctx.shadowOffsetY = Math.max(2, radius * 0.18);
-    ctx.drawImage(color.image, x - size / 2, y - size / 2, size, size);
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 0.98, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.clip();
+    drawCoverImageAt(ctx, color.image, x - size / 2, y - size / 2, size, size);
     ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 0.98, 0, Math.PI * 2);
+    ctx.lineWidth = Math.max(1.5, radius * 0.1);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.58)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 0.78, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = Math.max(1, radius * 0.05);
+    ctx.stroke();
+    ctx.restore();
+
+    if (color.type === 'special' && color.special === 'bomb') {
+      drawBombBubbleAccent(ctx, { alpha, radius, x, y });
+    }
+
+    if (color.type === 'special' && color.special === 'rainbow') {
+      drawRainbowBubbleAccent(ctx, { alpha, radius, x, y });
+    }
+
+    if (color.type === 'special' && color.special === 'laser') {
+      drawLaserBubbleAccent(ctx, { alpha, radius, x, y });
+    }
+
     return;
   }
 
@@ -139,6 +284,18 @@ function drawBubbleAt(ctx, { alpha = 1, color, radius, x, y }) {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.38)';
   ctx.fill();
   ctx.restore();
+
+  if (color?.type === 'special' && color.special === 'bomb') {
+    drawBombBubbleAccent(ctx, { alpha, radius, x, y });
+  }
+
+  if (color?.type === 'special' && color.special === 'rainbow') {
+    drawRainbowBubbleAccent(ctx, { alpha, radius, x, y });
+  }
+
+  if (color?.type === 'special' && color.special === 'laser') {
+    drawLaserBubbleAccent(ctx, { alpha, radius, x, y });
+  }
 }
 
 function drawRoundedRect(ctx, x, y, width, height, radius) {
@@ -160,6 +317,25 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
   ctx.quadraticCurveTo(x, y, x + r, y);
 }
 
+function drawTopHudBand(ctx, layout) {
+  const hudHeight = layout.hudHeight ?? layout.top;
+  const gradient = ctx.createLinearGradient(0, 0, 0, hudHeight);
+
+  gradient.addColorStop(0, 'rgba(2, 6, 23, 0.9)');
+  gradient.addColorStop(1, 'rgba(15, 23, 42, 0.72)');
+
+  ctx.save();
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, layout.width, hudHeight);
+  ctx.strokeStyle = 'rgba(125, 211, 252, 0.24)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, hudHeight + 0.5);
+  ctx.lineTo(layout.width, hudHeight + 0.5);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawHud(ctx, snapshot) {
   const {
     activeColorCount,
@@ -175,10 +351,14 @@ function drawHud(ctx, snapshot) {
   }
 
   const paddingX = Math.max(12, gridLayout.bubbleRadius * 0.7);
+  const hudBandHeight = gridLayout.hudHeight ?? gridLayout.top;
   const x = Math.max(10, gridLayout.bubbleRadius * 0.45);
-  const y = Math.max(10, gridLayout.top * 0.55);
-  const hudWidth = Math.min(width - 20, gridLayout.bubbleRadius * 7.2);
-  const hudHeight = gridLayout.bubbleRadius * 2.1;
+  const hudWidth = Math.min(
+    width - 20,
+    Math.max(124, Math.min(width * 0.38, gridLayout.bubbleRadius * 7.2)),
+  );
+  const hudHeight = Math.max(36, Math.min(hudBandHeight - 16, gridLayout.bubbleRadius * 2.1));
+  const y = Math.max(8, (hudBandHeight - hudHeight) / 2);
   const radius = 8;
 
   ctx.save();
@@ -190,32 +370,22 @@ function drawHud(ctx, snapshot) {
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.82)';
-  ctx.font = `${Math.max(11, gridLayout.bubbleRadius * 0.46)}px system-ui, sans-serif`;
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.86)';
+  ctx.font = `700 ${Math.max(11, Math.min(13, gridLayout.bubbleRadius * 0.5))}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText('总分', x + paddingX, y + hudHeight * 0.5);
-
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
-  ctx.fillRect(
-    x + paddingX - 3,
-    y + hudHeight * 0.5 - gridLayout.bubbleRadius * 0.42,
-    gridLayout.bubbleRadius * 2.7,
-    gridLayout.bubbleRadius * 0.84,
-  );
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.82)';
-  ctx.fillText('Score', x + paddingX, y + hudHeight * 0.36);
+  ctx.fillText('分数', x + paddingX, y + hudHeight * 0.36);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `700 ${Math.max(16, gridLayout.bubbleRadius * 0.72)}px system-ui, sans-serif`;
+  ctx.font = `800 ${Math.max(15, Math.min(20, gridLayout.bubbleRadius * 0.76))}px system-ui, sans-serif`;
   ctx.textAlign = 'right';
   ctx.fillText(String(score), x + hudWidth - paddingX, y + hudHeight * 0.36 + 1);
 
   ctx.fillStyle = 'rgba(203, 213, 225, 0.86)';
-  ctx.font = `600 ${Math.max(10, gridLayout.bubbleRadius * 0.42)}px system-ui, sans-serif`;
+  ctx.font = `600 ${Math.max(10, Math.min(12, gridLayout.bubbleRadius * 0.42))}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.fillText(
-    `Colors ${activeColorCount}  Miss ${missesSinceMatch}/${missesBeforePressureRow}`,
+    `色 ${activeColorCount}  失误 ${missesSinceMatch}/${missesBeforePressureRow}`,
     x + paddingX,
     y + hudHeight * 0.72,
   );
@@ -437,6 +607,7 @@ function drawLauncherSocketMask(ctx, { imageHeight, launcher, radius }) {
 
 function drawLauncherImage(ctx, snapshot, radius) {
   const {
+    aimDirection,
     assets,
     currentBubble,
     flyingBubble,
@@ -459,11 +630,20 @@ function drawLauncherImage(ctx, snapshot, radius) {
   const imageWidth = imageHeight * (image.width / image.height);
   const imageX = launcher.launchX - imageWidth / 2;
   const imageY = launcher.launchY - imageHeight * LAUNCHER_CENTER_Y_RATIO;
+  const launcherRotation = Math.atan2(aimDirection?.x ?? 0, -(aimDirection?.y ?? -1));
 
   ctx.save();
+  ctx.translate(launcher.launchX, launcher.launchY);
+  ctx.rotate(launcherRotation);
   ctx.shadowColor = 'rgba(14, 165, 233, 0.28)';
   ctx.shadowBlur = Math.max(8, radius * 0.75);
-  ctx.drawImage(image, imageX, imageY, imageWidth, imageHeight);
+  ctx.drawImage(
+    image,
+    imageX - launcher.launchX,
+    imageY - launcher.launchY,
+    imageWidth,
+    imageHeight,
+  );
   ctx.restore();
 
   drawLauncherSocketMask(ctx, { imageHeight, launcher, radius });
@@ -728,7 +908,7 @@ function drawOverlayPanel(ctx, {
 function drawPausedOverlay(ctx, snapshot) {
   const panel = drawOverlayPanel(ctx, {
     height: 210,
-    title: 'Paused',
+    title: '游戏暂停',
     viewportHeight: snapshot.height,
     width: snapshot.width,
     y: snapshot.height * 0.34,
@@ -739,7 +919,7 @@ function drawPausedOverlay(ctx, snapshot) {
   ctx.font = '600 14px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`Score ${snapshot.score}`, snapshot.width / 2, panel.y + 78);
+  ctx.fillText(`当前分数 ${snapshot.score}`, snapshot.width / 2, panel.y + 78);
   ctx.restore();
 }
 
@@ -826,6 +1006,7 @@ function drawScene(ctx, snapshot) {
   drawLauncher(ctx, snapshot);
   drawFlyingBubble(ctx, flyingBubble);
   drawEffects(ctx, effects, gridLayout);
+  drawTopHudBand(ctx, gridLayout);
   drawHud(ctx, snapshot);
 }
 
