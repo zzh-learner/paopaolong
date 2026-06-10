@@ -313,6 +313,19 @@ export function getNeighbors(row, col, layout = activeLayout) {
 }
 
 export function findSameColorCluster(row, col, bubbles, layout = activeLayout) {
+  const clusterOptions = findSameColorClusterOptions(row, col, bubbles, layout);
+  let bestCluster = [];
+
+  for (const option of clusterOptions) {
+    if (option.cluster.length > bestCluster.length) {
+      bestCluster = option.cluster;
+    }
+  }
+
+  return bestCluster;
+}
+
+export function findSameColorClusterOptions(row, col, bubbles, layout = activeLayout) {
   assertLayout(layout);
 
   const bubbleByCell = new Map(
@@ -326,23 +339,17 @@ export function findSameColorCluster(row, col, bubbles, layout = activeLayout) {
   }
 
   const targetColorIds = getClusterCandidateColorIds(startBubble.color, bubbles);
-  let bestCluster = [];
 
-  for (const targetColorId of targetColorIds) {
-    const cluster = collectColorCluster({
+  return targetColorIds.map((targetColorId) => ({
+    cluster: collectColorCluster({
       bubbleByCell,
       col,
       layout,
       row,
       targetColorId,
-    });
-
-    if (cluster.length > bestCluster.length) {
-      bestCluster = cluster;
-    }
-  }
-
-  return bestCluster;
+    }),
+    targetColorId,
+  }));
 }
 
 function collectColorCluster({

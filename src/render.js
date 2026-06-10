@@ -405,7 +405,7 @@ function drawHud(ctx, snapshot) {
   ctx.font = `600 ${Math.max(10, Math.min(12, gridLayout.bubbleRadius * 0.42))}px system-ui, sans-serif`;
   ctx.textAlign = 'left';
   ctx.fillText(
-    `色 ${activeColorCount}  失误 ${missesSinceMatch}/${missesBeforePressureRow}`,
+    `普通色 ${activeColorCount}  失误 ${missesSinceMatch}/${missesBeforePressureRow}`,
     x + paddingX,
     y + hudHeight * 0.72,
   );
@@ -993,7 +993,7 @@ function drawSettlementOverlay(ctx, snapshot) {
     `分数 ${settlement?.score ?? snapshot.score}`,
     `发射 ${settlement?.shotsFired ?? snapshot.shotsFired}`,
     `压力行 ${settlement?.pressureRowsAdded ?? snapshot.pressureRowsAdded}`,
-    `颜色 ${settlement?.activeColorCount ?? snapshot.activeColorCount}`,
+    `普通色 ${settlement?.activeColorCount ?? snapshot.activeColorCount}`,
   ];
 
   ctx.save();

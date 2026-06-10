@@ -1,6 +1,5 @@
 import {
   BOMB_BUBBLE,
-  BUBBLE_COLORS,
   LASER_BUBBLE,
   RAINBOW_BUBBLE,
   cellKey,
@@ -8,6 +7,7 @@ import {
   createInitialBubbles,
   findFloatingBubbles as findGridFloatingBubbles,
   findSameColorCluster as findGridSameColorCluster,
+  findSameColorClusterOptions as findGridSameColorClusterOptions,
   getColumnsForRow,
   getNeighbors,
   findNearestOpenCell,
@@ -52,6 +52,7 @@ const LASER_BEAM_HALF_WIDTH_FACTOR = 0.62;
 const LASER_BEAM_MAX_BOUNCES = 2;
 const LASER_BEAM_MAX_DISTANCE_FACTOR = 1.55;
 const SETTLEMENT_EASTER_EGG_MESSAGE = '谢谢你玩我的游戏';
+const ACTIVE_ORDINARY_COLOR_COUNT = 4;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -82,12 +83,13 @@ function normalizeDirection(direction) {
 export class Game {
   constructor({ assets }) {
     this.assets = assets;
-    this.activeColorCount = BUBBLE_COLORS.length;
+    this.activeColorCount = ACTIVE_ORDINARY_COLOR_COUNT;
     this.audio = new AudioFeedback();
     this.aimDirection = { x: 0, y: -1 };
     this.aimTrajectory = [];
     this.activeShotDirection = null;
     this.activeShotOrigin = null;
+    this.activeShotPath = [];
     this.bubbles = [];
     this.cellColors = new Map();
     this.shotBubbleSequence = 0;
@@ -189,6 +191,7 @@ export class Game {
         stepTime,
         getWallBounds(this.gridLayout),
       );
+      this.recordActiveShotPoint();
       this.resolveShotCollision();
       remainingTime -= stepTime;
     }
@@ -205,7 +208,7 @@ export class Game {
   }
 
   pickPlayableColor() {
-    return pickRandomBubbleColor();
+    return pickRandomBubbleColor(this.activeColorCount);
   }
 
   pickShooterBubble() {
@@ -336,11 +339,12 @@ export class Game {
   }
 
   restartGame() {
-    this.activeColorCount = BUBBLE_COLORS.length;
+    this.activeColorCount = ACTIVE_ORDINARY_COLOR_COUNT;
     this.aimDirection = { x: 0, y: -1 };
     this.aimTrajectory = [];
     this.activeShotDirection = null;
     this.activeShotOrigin = null;
+    this.activeShotPath = [];
     this.bubbles = [];
     this.cellColors.clear();
     this.shotBubbleSequence = 0;
@@ -440,6 +444,7 @@ export class Game {
       x: this.launcher.launchX,
       y: this.launcher.launchY,
     };
+    this.activeShotPath = [{ ...this.activeShotOrigin }];
     this.currentBubble = null;
     this.aimTrajectory = [];
     this.state = 'shooting';
@@ -539,6 +544,12 @@ export class Game {
       : [];
   }
 
+  findSameColorClusterOptions(row, col) {
+    return this.gridLayout
+      ? findGridSameColorClusterOptions(row, col, this.bubbles, this.gridLayout)
+      : [];
+  }
+
   findFloatingBubbles() {
     return this.gridLayout
       ? findGridFloatingBubbles(this.bubbles, this.gridLayout)
@@ -546,78 +557,61 @@ export class Game {
   }
 
   resolveSameColorMatch(row, col) {
-    const cluster = this.findSameColorCluster(row, col);
+    const removal = this.findBestSameColorRemoval(row, col);
 
-    if (cluster.length < MATCH_MIN_CLUSTER_SIZE) {
+    if (!removal) {
       return { duration: 0, removedCount: 0 };
     }
 
-    const removedCells = new Set(cluster.map((bubble) => cellKey(bubble.row, bubble.col)));
-    const popScore = calculatePopScore(cluster.length);
-    const poppedWorldPositions = cluster.map((bubble) => ({
-      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
-      color: bubble.color,
-    }));
+    return this.applyBubbleRemoval({
+      dropVibration: [14, 28, 18],
+      popBubbles: removal.cluster,
+      popVibration: 18,
+    });
+  }
 
-    this.bubbles = this.bubbles.filter((bubble) => {
-      const key = cellKey(bubble.row, bubble.col);
+  findBestSameColorRemoval(row, col) {
+    const options = this.findSameColorClusterOptions(row, col)
+      .filter((option) => option.cluster.length >= MATCH_MIN_CLUSTER_SIZE);
+    let bestRemoval = null;
 
-      if (removedCells.has(key)) {
-        this.cellColors.delete(key);
-        return false;
+    for (const option of options) {
+      const poppedCells = new Set(
+        option.cluster.map((bubble) => cellKey(bubble.row, bubble.col)),
+      );
+      const remainingBubbles = this.bubbles.filter((bubble) => (
+        !poppedCells.has(cellKey(bubble.row, bubble.col))
+      ));
+      const floatingBubbles = findGridFloatingBubbles(remainingBubbles, this.gridLayout);
+      const scoreGained = (
+        calculatePopScore(option.cluster.length)
+        + calculateDropScore(floatingBubbles.length)
+      );
+      const removedCount = option.cluster.length + floatingBubbles.length;
+      const candidate = {
+        cluster: option.cluster,
+        removedCount,
+        scoreGained,
+      };
+
+      if (
+        !bestRemoval
+        || candidate.scoreGained > bestRemoval.scoreGained
+        || (
+          candidate.scoreGained === bestRemoval.scoreGained
+          && candidate.removedCount > bestRemoval.removedCount
+        )
+        || (
+          candidate.scoreGained === bestRemoval.scoreGained
+          && candidate.removedCount === bestRemoval.removedCount
+          && candidate.cluster.length > bestRemoval.cluster.length
+        )
+      ) {
+        bestRemoval = candidate;
       }
-
-      return true;
-    });
-    const floatingBubbles = this.findFloatingBubbles();
-    const dropScore = calculateDropScore(floatingBubbles.length);
-    const droppedWorldPositions = floatingBubbles.map((bubble) => ({
-      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
-      color: bubble.color,
-    }));
-    const floatingCells = new Set(
-      floatingBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
-    );
-
-    if (floatingCells.size > 0) {
-      this.bubbles = this.bubbles.filter((bubble) => {
-        const key = cellKey(bubble.row, bubble.col);
-
-        if (floatingCells.has(key)) {
-          this.cellColors.delete(key);
-          return false;
-        }
-
-        return true;
-      });
     }
 
-    const scoreGained = popScore + dropScore;
-    this.score += scoreGained;
-    this.audio.playPop(cluster.length);
-
-    if (floatingBubbles.length > 0) {
-      this.audio.playDrop(floatingBubbles.length);
-      vibrate([14, 28, 18]);
-    } else {
-      vibrate(18);
-    }
-
-    this.createMatchEffects({
-      dropScore,
-      droppedWorldPositions,
-      poppedWorldPositions,
-      popScore,
-      scoreGained,
-    });
-
-    return {
-      duration: Math.max(
-        POP_RESOLVE_DURATION,
-        droppedWorldPositions.length ? FALLING_BUBBLE_DURATION : 0,
-      ),
-      removedCount: cluster.length + floatingBubbles.length,
-    };
+    return bestRemoval;
   }
 
   resolveBombBubble(row, col) {
@@ -637,73 +631,13 @@ export class Game {
     const blastedBubbles = this.bubbles.filter((bubble) => (
       blastedCells.has(cellKey(bubble.row, bubble.col))
     ));
-    const poppedWorldPositions = blastedBubbles.map((bubble) => ({
-      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
-      color: bubble.color,
-    }));
 
-    this.bubbles = this.bubbles.filter((bubble) => {
-      const key = cellKey(bubble.row, bubble.col);
-
-      if (blastedCells.has(key)) {
-        this.cellColors.delete(key);
-        return false;
-      }
-
-      return true;
-    });
-
-    const floatingBubbles = this.findFloatingBubbles();
-    const dropScore = calculateDropScore(floatingBubbles.length);
-    const droppedWorldPositions = floatingBubbles.map((bubble) => ({
-      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
-      color: bubble.color,
-    }));
-    const floatingCells = new Set(
-      floatingBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
-    );
-
-    if (floatingCells.size > 0) {
-      this.bubbles = this.bubbles.filter((bubble) => {
-        const key = cellKey(bubble.row, bubble.col);
-
-        if (floatingCells.has(key)) {
-          this.cellColors.delete(key);
-          return false;
-        }
-
-        return true;
-      });
-    }
-
-    const popScore = calculatePopScore(blastedBubbles.length);
-    const scoreGained = popScore + dropScore;
-    this.score += scoreGained;
-    this.audio.playPop(Math.max(2, blastedBubbles.length));
-
-    if (floatingBubbles.length > 0) {
-      this.audio.playDrop(floatingBubbles.length);
-      vibrate([18, 22, 18]);
-    } else {
-      vibrate(24);
-    }
-
-    this.createMatchEffects({
-      dropScore,
-      droppedWorldPositions,
+    return this.applyBubbleRemoval({
+      dropVibration: [18, 22, 18],
+      popBubbles: blastedBubbles,
       popLabel: '炸弹',
-      poppedWorldPositions,
-      popScore,
-      scoreGained,
+      popVibration: 24,
     });
-
-    return {
-      duration: Math.max(
-        POP_RESOLVE_DURATION,
-        droppedWorldPositions.length ? FALLING_BUBBLE_DURATION : 0,
-      ),
-      removedCount: blastedBubbles.length + floatingBubbles.length,
-    };
   }
 
   resolveLaserBubble(row, col) {
@@ -721,76 +655,28 @@ export class Game {
     const clearedCells = new Set(
       clearedBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
     );
-    const poppedWorldPositions = clearedBubbles.map((bubble) => ({
-      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
-      color: bubble.color,
-    }));
+    const uniqueClearedBubbles = this.bubbles.filter((bubble) => (
+      clearedCells.has(cellKey(bubble.row, bubble.col))
+    ));
 
-    this.bubbles = this.bubbles.filter((bubble) => {
-      const key = cellKey(bubble.row, bubble.col);
-
-      if (clearedCells.has(key)) {
-        this.cellColors.delete(key);
-        return false;
-      }
-
-      return true;
-    });
-
-    const floatingBubbles = this.findFloatingBubbles();
-    const dropScore = calculateDropScore(floatingBubbles.length);
-    const droppedWorldPositions = floatingBubbles.map((bubble) => ({
-      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
-      color: bubble.color,
-    }));
-    const floatingCells = new Set(
-      floatingBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
-    );
-
-    if (floatingCells.size > 0) {
-      this.bubbles = this.bubbles.filter((bubble) => {
-        const key = cellKey(bubble.row, bubble.col);
-
-        if (floatingCells.has(key)) {
-          this.cellColors.delete(key);
-          return false;
-        }
-
-        return true;
-      });
-    }
-
-    const popScore = calculatePopScore(clearedBubbles.length);
-    const scoreGained = popScore + dropScore;
-    this.score += scoreGained;
-    this.audio.playPop(Math.max(2, clearedBubbles.length));
-
-    if (floatingBubbles.length > 0) {
-      this.audio.playDrop(floatingBubbles.length);
-      vibrate([10, 18, 10, 22]);
-    } else {
-      vibrate([10, 20]);
-    }
-
-    this.createMatchEffects({
-      dropScore,
-      droppedWorldPositions,
+    return this.applyBubbleRemoval({
+      dropVibration: [10, 18, 10, 22],
+      popBubbles: uniqueClearedBubbles,
       popLabel: '激光',
-      poppedWorldPositions,
-      popScore,
-      scoreGained,
+      popVibration: [10, 20],
     });
-
-    return {
-      duration: Math.max(
-        POP_RESOLVE_DURATION,
-        droppedWorldPositions.length ? FALLING_BUBBLE_DURATION : 0,
-      ),
-      removedCount: clearedBubbles.length + floatingBubbles.length,
-    };
   }
 
   getLaserBeamSegments() {
+    if (this.activeShotPath.length >= 2) {
+      return this.activeShotPath
+        .slice(0, -1)
+        .map((point, index) => ({
+          end: this.activeShotPath[index + 1],
+          start: point,
+        }));
+    }
+
     if (!this.gridLayout || !this.launcher) {
       return [];
     }
@@ -892,6 +778,104 @@ export class Game {
     return Math.hypot(point.x - closest.x, point.y - closest.y);
   }
 
+  applyBubbleRemoval({
+    dropVibration,
+    popBubbles,
+    popLabel = '消除',
+    popVibration,
+  }) {
+    if (!popBubbles.length || !this.gridLayout) {
+      return { duration: 0, removedCount: 0 };
+    }
+
+    const poppedCells = new Set(
+      popBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
+    );
+    const poppedWorldPositions = popBubbles.map((bubble) => ({
+      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
+      color: bubble.color,
+    }));
+
+    this.bubbles = this.bubbles.filter((bubble) => {
+      const key = cellKey(bubble.row, bubble.col);
+
+      if (poppedCells.has(key)) {
+        this.cellColors.delete(key);
+        return false;
+      }
+
+      return true;
+    });
+
+    const floatingBubbles = this.findFloatingBubbles();
+    const floatingCells = new Set(
+      floatingBubbles.map((bubble) => cellKey(bubble.row, bubble.col)),
+    );
+    const droppedWorldPositions = floatingBubbles.map((bubble) => ({
+      ...gridToWorld(bubble.row, bubble.col, this.gridLayout),
+      color: bubble.color,
+    }));
+
+    if (floatingCells.size > 0) {
+      this.bubbles = this.bubbles.filter((bubble) => {
+        const key = cellKey(bubble.row, bubble.col);
+
+        if (floatingCells.has(key)) {
+          this.cellColors.delete(key);
+          return false;
+        }
+
+        return true;
+      });
+    }
+
+    const popScore = calculatePopScore(popBubbles.length);
+    const dropScore = calculateDropScore(floatingBubbles.length);
+    const scoreGained = popScore + dropScore;
+    this.score += scoreGained;
+    this.audio.playPop(Math.max(2, popBubbles.length));
+
+    if (floatingBubbles.length > 0) {
+      this.audio.playDrop(floatingBubbles.length);
+      vibrate(dropVibration);
+    } else {
+      vibrate(popVibration);
+    }
+
+    this.createMatchEffects({
+      dropScore,
+      droppedWorldPositions,
+      popLabel,
+      poppedWorldPositions,
+      popScore,
+      scoreGained,
+    });
+
+    return {
+      duration: Math.max(
+        POP_RESOLVE_DURATION,
+        droppedWorldPositions.length ? FALLING_BUBBLE_DURATION : 0,
+      ),
+      removedCount: popBubbles.length + floatingBubbles.length,
+    };
+  }
+
+  recordActiveShotPoint() {
+    if (!this.flyingBubble) {
+      return;
+    }
+
+    const lastPoint = this.activeShotPath[this.activeShotPath.length - 1];
+    const nextPoint = {
+      x: this.flyingBubble.x,
+      y: this.flyingBubble.y,
+    };
+
+    if (!lastPoint || Math.hypot(lastPoint.x - nextPoint.x, lastPoint.y - nextPoint.y) >= 1) {
+      this.activeShotPath.push(nextPoint);
+    }
+  }
+
   createMatchEffects({
     dropScore,
     droppedWorldPositions,
@@ -987,6 +971,7 @@ export class Game {
     this.flyingBubble = null;
     this.activeShotDirection = null;
     this.activeShotOrigin = null;
+    this.activeShotPath = [];
     this.resolveCooldown = 0;
     this.pendingShotHadMatch = false;
 
@@ -995,7 +980,6 @@ export class Game {
     }
 
     this.shotsFired += 1;
-    this.updateDifficultyProgress();
 
     if (!this.hasOrdinaryBubbles()) {
       this.endGame('win', '已清空普通泡泡。');
@@ -1035,10 +1019,6 @@ export class Game {
     this.state = 'resolving';
     this.isPointerActive = false;
     this.refreshAimTrajectory();
-  }
-
-  updateDifficultyProgress() {
-    this.activeColorCount = BUBBLE_COLORS.length;
   }
 
   addPressureRow() {
@@ -1115,6 +1095,7 @@ export class Game {
     this.flyingBubble = null;
     this.activeShotDirection = null;
     this.activeShotOrigin = null;
+    this.activeShotPath = [];
     this.aimTrajectory = [];
     this.resolveCooldown = 0;
     this.settlementDelay = SETTLEMENT_DELAY;
