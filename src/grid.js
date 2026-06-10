@@ -278,7 +278,7 @@ export function findNearestOpenNeighbor({
         distance: Math.hypot(world.x - x, world.y - y),
       };
     })
-    .sort((a, b) => a.distance - b.distance)[0] ?? null;
+    .sort((a, b) => a.distance - b.distance)[0] || null;
 }
 
 export function getNeighbors(row, col, layout = activeLayout) {
@@ -424,7 +424,7 @@ function matchesClusterColor(color, targetColorId) {
 }
 
 function getColorId(color) {
-  return color?.id ?? color;
+  return color && color.id ? color.id : color;
 }
 
 export function findFloatingBubbles(bubbles, layout = activeLayout) {
@@ -467,19 +467,19 @@ export function findFloatingBubbles(bubbles, layout = activeLayout) {
 }
 
 export function isBombBubbleColor(color) {
-  return color?.type === 'special' && color.special === 'bomb';
+  return Boolean(color && color.type === 'special' && color.special === 'bomb');
 }
 
 export function isRainbowBubbleColor(color) {
-  return color?.type === 'special' && color.special === 'rainbow';
+  return Boolean(color && color.type === 'special' && color.special === 'rainbow');
 }
 
 export function isLaserBubbleColor(color) {
-  return color?.type === 'special' && color.special === 'laser';
+  return Boolean(color && color.type === 'special' && color.special === 'laser');
 }
 
 export function isSpecialBubbleColor(color) {
-  return color?.type === 'special';
+  return Boolean(color && color.type === 'special');
 }
 
 export function pickRandomBubbleColor(colorCount = BUBBLE_COLORS.length) {

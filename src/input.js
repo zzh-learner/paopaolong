@@ -9,14 +9,19 @@ function getCanvasPoint(canvas, event) {
 
 export function createPointerInput(canvas, game) {
   function releasePointer(event) {
-    if (canvas.hasPointerCapture?.(event.pointerId)) {
+    if (
+      typeof canvas.hasPointerCapture === 'function'
+      && canvas.hasPointerCapture(event.pointerId)
+    ) {
       canvas.releasePointerCapture(event.pointerId);
     }
   }
 
   function handlePointerDown(event) {
     event.preventDefault();
-    canvas.setPointerCapture?.(event.pointerId);
+    if (typeof canvas.setPointerCapture === 'function') {
+      canvas.setPointerCapture(event.pointerId);
+    }
     game.handlePointerDown(getCanvasPoint(canvas, event));
   }
 

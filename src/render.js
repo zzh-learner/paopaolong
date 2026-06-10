@@ -184,7 +184,7 @@ function drawBackgroundWash(ctx, width, height) {
 }
 
 function drawBubbleAt(ctx, { alpha = 1, color, radius, x, y }) {
-  if (color?.image) {
+  if (color && color.image) {
     const imageScale = color.type === 'special'
       ? BUBBLE_IMAGE_SCALE * 1.18
       : BUBBLE_IMAGE_SCALE;
@@ -305,15 +305,15 @@ function drawBubbleAt(ctx, { alpha = 1, color, radius, x, y }) {
   ctx.fill();
   ctx.restore();
 
-  if (color?.type === 'special' && color.special === 'bomb') {
+  if (color && color.type === 'special' && color.special === 'bomb') {
     drawBombBubbleAccent(ctx, { alpha, radius, x, y });
   }
 
-  if (color?.type === 'special' && color.special === 'rainbow') {
+  if (color && color.type === 'special' && color.special === 'rainbow') {
     drawRainbowBubbleAccent(ctx, { alpha, radius, x, y });
   }
 
-  if (color?.type === 'special' && color.special === 'laser') {
+  if (color && color.type === 'special' && color.special === 'laser') {
     drawLaserBubbleAccent(ctx, { alpha, radius, x, y });
   }
 }
@@ -338,7 +338,7 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
 }
 
 function drawTopHudBand(ctx, layout) {
-  const hudHeight = layout.hudHeight ?? layout.top;
+  const hudHeight = layout.hudHeight != null ? layout.hudHeight : layout.top;
   const gradient = ctx.createLinearGradient(0, 0, 0, hudHeight);
 
   gradient.addColorStop(0, 'rgba(2, 6, 23, 0.9)');
@@ -371,7 +371,7 @@ function drawHud(ctx, snapshot) {
   }
 
   const paddingX = Math.max(12, gridLayout.bubbleRadius * 0.7);
-  const hudBandHeight = gridLayout.hudHeight ?? gridLayout.top;
+  const hudBandHeight = gridLayout.hudHeight != null ? gridLayout.hudHeight : gridLayout.top;
   const x = Math.max(10, gridLayout.bubbleRadius * 0.45);
   const hudWidth = Math.min(
     width - 20,
@@ -445,7 +445,7 @@ function drawScorePopup(ctx, effect, layout) {
   const progress = Math.min(1, effect.age / effect.duration);
   const y = effect.y - progress * layout.bubbleRadius * 2.1;
   const alpha = progress < 0.72 ? 1 : 1 - (progress - 0.72) / 0.28;
-  const hasParts = effect.scoreParts?.length > 0;
+  const hasParts = effect.scoreParts && effect.scoreParts.length > 0;
 
   ctx.save();
   ctx.globalAlpha = Math.max(0, alpha);
@@ -488,7 +488,7 @@ function drawFallingBubbleEffect(ctx, effect) {
 }
 
 function drawEffects(ctx, effects, layout) {
-  if (!effects?.length || !layout) {
+  if (!effects || !effects.length || !layout) {
     return;
   }
 
@@ -671,7 +671,7 @@ function drawLauncherImage(ctx, snapshot, radius) {
     launcher,
     nextBubble,
   } = snapshot;
-  const image = assets?.launcherLoaded ? assets.launcher : null;
+  const image = assets && assets.launcherLoaded ? assets.launcher : null;
 
   if (!image) {
     return false;
@@ -686,7 +686,9 @@ function drawLauncherImage(ctx, snapshot, radius) {
   const imageWidth = imageHeight * (image.width / image.height);
   const imageX = launcher.launchX - imageWidth / 2;
   const imageY = launcher.launchY - imageHeight * LAUNCHER_CENTER_Y_RATIO;
-  const launcherRotation = Math.atan2(aimDirection?.x ?? 0, -(aimDirection?.y ?? -1));
+  const aimX = aimDirection && aimDirection.x != null ? aimDirection.x : 0;
+  const aimY = aimDirection && aimDirection.y != null ? aimDirection.y : -1;
+  const launcherRotation = Math.atan2(aimX, -aimY);
 
   ctx.save();
   ctx.translate(launcher.launchX, launcher.launchY);
@@ -914,7 +916,7 @@ function drawButton(ctx, control) {
 }
 
 function drawControls(ctx, controls) {
-  if (!controls?.length) {
+  if (!controls || !controls.length) {
     return;
   }
 
@@ -984,16 +986,16 @@ function drawSettlementOverlay(ctx, snapshot) {
   const panelLayout = getSettlementPanelLayout(snapshot.height);
   const panel = drawOverlayPanel(ctx, {
     height: panelLayout.height,
-    title: settlement?.title ?? '结算',
+    title: settlement && settlement.title != null ? settlement.title : '结算',
     viewportHeight: snapshot.height,
     width: snapshot.width,
     y: panelLayout.y,
   });
   const lines = [
-    `分数 ${settlement?.score ?? snapshot.score}`,
-    `发射 ${settlement?.shotsFired ?? snapshot.shotsFired}`,
-    `压力行 ${settlement?.pressureRowsAdded ?? snapshot.pressureRowsAdded}`,
-    `普通色 ${settlement?.activeColorCount ?? snapshot.activeColorCount}`,
+    `分数 ${settlement && settlement.score != null ? settlement.score : snapshot.score}`,
+    `发射 ${settlement && settlement.shotsFired != null ? settlement.shotsFired : snapshot.shotsFired}`,
+    `压力行 ${settlement && settlement.pressureRowsAdded != null ? settlement.pressureRowsAdded : snapshot.pressureRowsAdded}`,
+    `普通色 ${settlement && settlement.activeColorCount != null ? settlement.activeColorCount : snapshot.activeColorCount}`,
   ];
 
   ctx.save();
@@ -1002,7 +1004,9 @@ function drawSettlementOverlay(ctx, snapshot) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(
-    settlement?.easterEggMessage ?? '谢谢你玩我的游戏',
+    settlement && settlement.easterEggMessage != null
+      ? settlement.easterEggMessage
+      : '谢谢你玩我的游戏',
     snapshot.width / 2,
     panel.y + 70,
   );
@@ -1014,7 +1018,7 @@ function drawSettlementOverlay(ctx, snapshot) {
     ctx.fillText(line, snapshot.width / 2, panel.y + 100 + index * 24);
   });
 
-  if (settlement?.reason) {
+  if (settlement && settlement.reason) {
     ctx.fillStyle = 'rgba(186, 230, 253, 0.84)';
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.fillText(settlement.reason, snapshot.width / 2, panel.y + 198);
@@ -1055,14 +1059,15 @@ function drawDebugPanel(ctx, snapshot) {
   const width = Math.min(184, snapshot.width - 20);
   const lineHeight = 17;
   const lines = [
-    `状态：${STATE_LABELS[snapshot.state] ?? snapshot.state}`,
+    `状态：${STATE_LABELS[snapshot.state] || snapshot.state}`,
+    `场景：${snapshot.debugScenarioLabel || '未加载'}`,
     `帧率：${Math.round(snapshot.fps || 0)}`,
-    `泡泡：${snapshot.bubbles?.length ?? 0}`,
-    `发射：${snapshot.shotsFired ?? 0}`,
-    `失误：${snapshot.missesSinceMatch ?? 0}/${snapshot.missesBeforePressureRow ?? 0}`,
+    `泡泡：${snapshot.bubbles ? snapshot.bubbles.length : 0}`,
+    `发射：${snapshot.shotsFired != null ? snapshot.shotsFired : 0}`,
+    `失误：${snapshot.missesSinceMatch != null ? snapshot.missesSinceMatch : 0}/${snapshot.missesBeforePressureRow != null ? snapshot.missesBeforePressureRow : 0}`,
   ];
   const x = 10;
-  const y = Math.max(10, (snapshot.gridLayout?.hudHeight ?? 0) + 8);
+  const y = Math.max(10, (snapshot.gridLayout ? snapshot.gridLayout.hudHeight || 0 : 0) + 8);
   const height = 14 + lines.length * lineHeight;
 
   ctx.save();

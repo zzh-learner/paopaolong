@@ -156,12 +156,13 @@ export function getAimTrajectory({
       .sort((a, b) => a.value - b.value)[0];
     const obstacleHit = findNearestRayObstacleHit({
       current,
-      maxDistance: Math.min(nextHit?.value ?? remainingDistance, remainingDistance),
+      maxDistance: Math.min(nextHit ? nextHit.value : remainingDistance, remainingDistance),
       obstacles,
       ray,
     });
-    const travel = obstacleHit?.value
-      ?? Math.min(nextHit?.value ?? remainingDistance, remainingDistance);
+    const travel = obstacleHit
+      ? obstacleHit.value
+      : Math.min(nextHit ? nextHit.value : remainingDistance, remainingDistance);
 
     current = {
       x: current.x + ray.x * travel,

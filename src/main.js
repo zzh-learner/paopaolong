@@ -12,10 +12,12 @@ let resizeFrameId = 0;
 
 function getViewportSize() {
   const viewport = window.visualViewport;
+  const viewportWidth = viewport ? viewport.width : window.innerWidth;
+  const viewportHeight = viewport ? viewport.height : window.innerHeight;
 
   return {
-    width: Math.max(1, Math.floor(viewport?.width ?? window.innerWidth)),
-    height: Math.max(1, Math.floor(viewport?.height ?? window.innerHeight)),
+    width: Math.max(1, Math.floor(viewportWidth)),
+    height: Math.max(1, Math.floor(viewportHeight)),
     dpr: Math.max(1, window.devicePixelRatio || 1),
   };
 }
@@ -88,8 +90,10 @@ async function start() {
 
 window.addEventListener('resize', requestResize);
 window.addEventListener('orientationchange', requestResize);
-window.visualViewport?.addEventListener('resize', requestResize);
-window.visualViewport?.addEventListener('scroll', requestResize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', requestResize);
+  window.visualViewport.addEventListener('scroll', requestResize);
+}
 document.addEventListener('touchmove', preventPageGesture, { passive: false });
 document.addEventListener('gesturestart', preventPageGesture);
 document.addEventListener('contextmenu', preventPageGesture);

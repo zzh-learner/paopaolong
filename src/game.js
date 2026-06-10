@@ -1,5 +1,6 @@
 import {
   BOMB_BUBBLE,
+  BUBBLE_COLORS,
   LASER_BUBBLE,
   RAINBOW_BUBBLE,
   cellKey,
@@ -18,6 +19,7 @@ import {
   isSpecialBubbleColor,
   isValidCell,
   pickRandomBubbleColor,
+  worldToNearestCell,
 } from './grid.js';
 import {
   createFlyingBubble,
@@ -53,6 +55,28 @@ const LASER_BEAM_MAX_BOUNCES = 2;
 const LASER_BEAM_MAX_DISTANCE_FACTOR = 1.55;
 const SETTLEMENT_EASTER_EGG_MESSAGE = '谢谢你玩我的游戏';
 const ACTIVE_ORDINARY_COLOR_COUNT = 4;
+const DEBUG_SCENARIOS = [
+  {
+    id: 'rainbowBest',
+    label: '彩虹最优',
+  },
+  {
+    id: 'laserBounce',
+    label: '激光反弹',
+  },
+  {
+    id: 'bombDrop',
+    label: '炸弹掉落',
+  },
+  {
+    id: 'specialsWin',
+    label: '特殊判胜',
+  },
+  {
+    id: 'pauseSettlement',
+    label: '暂停结算',
+  },
+];
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -68,16 +92,22 @@ function getSettlementPanelLayout(height) {
 }
 
 function normalizeDirection(direction) {
-  const length = Math.hypot(direction?.x ?? 0, direction?.y ?? 0);
+  const x = direction ? direction.x || 0 : 0;
+  const y = direction ? direction.y || 0 : 0;
+  const length = Math.hypot(x, y);
 
   if (!length) {
     return { x: 0, y: -1 };
   }
 
   return {
-    x: direction.x / length,
-    y: direction.y / length,
+    x: x / length,
+    y: y / length,
   };
+}
+
+function getColorById(id) {
+  return BUBBLE_COLORS.find((color) => color.id === id) || BUBBLE_COLORS[0];
 }
 
 export class Game {
@@ -118,6 +148,7 @@ export class Game {
     this.shotsFired = 0;
     this.state = 'ready';
     this.fallbackBackground = '#111827';
+    this.debugScenarioId = null;
   }
 
   resize({ width, height, dpr }) {
@@ -284,13 +315,15 @@ export class Game {
   }
 
   getControlActionAt(point) {
-    return this.getControls()
+    const control = this.getControls()
       .find((control) => (
         point.x >= control.x
         && point.x <= control.x + control.width
         && point.y >= control.y
         && point.y <= control.y + control.height
-      ))?.action ?? null;
+      ));
+
+    return control ? control.action : null;
   }
 
   executeControlAction(action) {
@@ -316,6 +349,11 @@ export class Game {
 
     if (action === 'toggleDebug') {
       this.debugEnabled = !this.debugEnabled;
+      return;
+    }
+
+    if (action.startsWith('debugScenario:')) {
+      this.applyDebugScenario(action.slice('debugScenario:'.length));
     }
   }
 
@@ -364,6 +402,7 @@ export class Game {
     this.settlementDelay = 0;
     this.shotsFired = 0;
     this.state = 'ready';
+    this.debugScenarioId = null;
 
     if (this.gridLayout) {
       this.bubbles = createInitialBubbles(
@@ -373,6 +412,312 @@ export class Game {
       this.launcher = getLauncherGeometry(this.gridLayout);
       this.refreshAimTrajectory();
     }
+  }
+
+  getDebugScenarioOptions() {
+    return DEBUG_SCENARIOS;
+  }
+
+  applyDebugScenario(id) {
+    if (!this.gridLayout || !this.launcher) {
+      return false;
+    }
+
+    const scenario = this.createDebugScenario(id);
+
+    if (!scenario) {
+      return false;
+    }
+
+    this.resetToDebugScenario(scenario);
+
+    if (scenario.outcome === 'win') {
+      this.endGame('win', scenario.reason || '棋盘只剩特殊泡泡。');
+    }
+
+    return true;
+  }
+
+  createDebugScenario(id) {
+    if (id === 'rainbowBest') {
+      return this.createRainbowBestDebugScenario();
+    }
+
+    if (id === 'laserBounce') {
+      return this.createLaserBounceDebugScenario();
+    }
+
+    if (id === 'bombDrop') {
+      return this.createBombDropDebugScenario();
+    }
+
+    if (id === 'specialsWin') {
+      return this.createSpecialsWinDebugScenario();
+    }
+
+    if (id === 'pauseSettlement') {
+      return this.createPauseSettlementDebugScenario();
+    }
+
+    return null;
+  }
+
+  resetToDebugScenario({
+    aimDirection = { x: 0, y: -1 },
+    bubbles,
+    currentBubble,
+    id,
+    nextBubble = getColorById('yellow'),
+    score = 0,
+  }) {
+    this.activeColorCount = ACTIVE_ORDINARY_COLOR_COUNT;
+    this.aimDirection = normalizeDirection(aimDirection);
+    this.activeShotDirection = null;
+    this.activeShotOrigin = null;
+    this.activeShotPath = [];
+    this.bubbles = bubbles;
+    this.cellColors.clear();
+    this.debugScenarioId = id;
+    this.effects = [];
+    this.flyingBubble = null;
+    this.hasInitializedGrid = true;
+    this.isPointerActive = false;
+    this.missesSinceMatch = 0;
+    this.pendingShotHadMatch = false;
+    this.pressureRowsAdded = 0;
+    this.previousState = 'ready';
+    this.resolveCooldown = 0;
+    this.score = score;
+    this.settlement = null;
+    this.settlementDelay = 0;
+    this.shotBubbleSequence = 0;
+    this.shotsFired = 0;
+    this.state = 'ready';
+    this.currentBubble = currentBubble;
+    this.nextBubble = nextBubble;
+
+    for (const bubble of this.bubbles) {
+      this.cellColors.set(cellKey(bubble.row, bubble.col), bubble.color);
+    }
+
+    this.refreshAimTrajectory();
+  }
+
+  getDebugCenterColumn() {
+    return clamp(
+      Math.floor((this.gridLayout.columns - 1) / 2),
+      1,
+      Math.max(1, this.gridLayout.columns - 3),
+    );
+  }
+
+  createDebugBubbles(entries) {
+    const bubbles = [];
+    const usedCells = new Set();
+
+    for (const [row, col, color] of entries) {
+      const boundedCol = clamp(col, 0, getColumnsForRow(row, this.gridLayout) - 1);
+      const key = cellKey(row, boundedCol);
+
+      if (
+        !isValidCell(row, boundedCol, this.gridLayout)
+        || usedCells.has(key)
+      ) {
+        continue;
+      }
+
+      usedCells.add(key);
+      bubbles.push({
+        row,
+        col: boundedCol,
+        color,
+      });
+    }
+
+    return bubbles;
+  }
+
+  createRainbowBestDebugScenario() {
+    const c = this.getDebugCenterColumn();
+
+    return {
+      aimDirection: { x: -0.18, y: -0.98 },
+      bubbles: this.createDebugBubbles([
+        [0, c - 2, getColorById('green')],
+        [0, c - 1, getColorById('blue')],
+        [0, c, getColorById('red')],
+        [0, c + 1, getColorById('red')],
+        [1, c - 1, getColorById('blue')],
+        [2, c, getColorById('blue')],
+        [2, c + 1, getColorById('blue')],
+        [3, c, getColorById('green')],
+        [3, c + 1, getColorById('yellow')],
+      ]),
+      currentBubble: RAINBOW_BUBBLE,
+      id: 'rainbowBest',
+      nextBubble: getColorById('yellow'),
+    };
+  }
+
+  createLaserBounceDebugScenario() {
+    const c = this.getDebugCenterColumn();
+    const aimDirection = normalizeDirection({ x: 0.78, y: -0.63 });
+    const laserCells = this.createDebugLaserPathCells(aimDirection);
+    const entries = [
+      [0, c - 1, getColorById('red')],
+      [0, c, getColorById('green')],
+      [1, c - 1, getColorById('yellow')],
+    ];
+
+    laserCells.forEach((cell, index) => {
+      entries.push([
+        cell.row,
+        cell.col,
+        [getColorById('blue'), getColorById('purple'), getColorById('cyan')][index % 3],
+      ]);
+    });
+
+    return {
+      aimDirection,
+      bubbles: this.createDebugBubbles(entries),
+      currentBubble: LASER_BUBBLE,
+      id: 'laserBounce',
+      nextBubble: getColorById('red'),
+    };
+  }
+
+  createBombDropDebugScenario() {
+    const c = this.getDebugCenterColumn();
+
+    return {
+      aimDirection: { x: -0.2, y: -0.98 },
+      bubbles: this.createDebugBubbles([
+        [0, c, getColorById('red')],
+        [1, c, getColorById('red')],
+        [2, c, getColorById('green')],
+        [2, c + 1, getColorById('blue')],
+        [3, c, getColorById('green')],
+        [3, c + 1, getColorById('blue')],
+        [4, c + 1, getColorById('purple')],
+        [0, c - 2, getColorById('yellow')],
+      ]),
+      currentBubble: BOMB_BUBBLE,
+      id: 'bombDrop',
+      nextBubble: getColorById('blue'),
+    };
+  }
+
+  createSpecialsWinDebugScenario() {
+    const c = this.getDebugCenterColumn();
+
+    return {
+      bubbles: this.createDebugBubbles([
+        [0, c - 1, BOMB_BUBBLE],
+        [0, c, RAINBOW_BUBBLE],
+        [1, c, LASER_BUBBLE],
+      ]),
+      currentBubble: getColorById('red'),
+      id: 'specialsWin',
+      nextBubble: getColorById('blue'),
+      outcome: 'win',
+      reason: '棋盘只剩特殊泡泡。',
+    };
+  }
+
+  createPauseSettlementDebugScenario() {
+    const c = this.getDebugCenterColumn();
+
+    return {
+      aimDirection: { x: 0.14, y: -0.99 },
+      bubbles: this.createDebugBubbles([
+        [0, c, getColorById('red')],
+        [0, c + 1, getColorById('red')],
+      ]),
+      currentBubble: getColorById('red'),
+      id: 'pauseSettlement',
+      nextBubble: getColorById('blue'),
+    };
+  }
+
+  createDebugLaserPathCells(direction) {
+    const cells = [];
+    const usedCells = new Set();
+    const radius = this.gridLayout.bubbleRadius * 0.92;
+    const bounds = getWallBounds(this.gridLayout);
+    const origin = {
+      x: this.launcher.launchX,
+      y: this.launcher.launchY,
+    };
+    let current = { ...origin };
+    let ray = normalizeDirection(direction);
+    let bounceCount = 0;
+    let remainingDistance = this.height * LASER_BEAM_MAX_DISTANCE_FACTOR;
+
+    while (remainingDistance > 0 && cells.length < 8) {
+      const distances = [];
+
+      if (ray.y < 0) {
+        distances.push({
+          type: 'top',
+          value: (bounds.top + radius - current.y) / ray.y,
+        });
+      }
+
+      if (ray.x < 0) {
+        distances.push({
+          type: 'left',
+          value: (bounds.left + radius - current.x) / ray.x,
+        });
+      }
+
+      if (ray.x > 0) {
+        distances.push({
+          type: 'right',
+          value: (bounds.right - radius - current.x) / ray.x,
+        });
+      }
+
+      const nextHit = distances
+        .filter((distance) => distance.value > 0.001)
+        .sort((a, b) => a.value - b.value)[0];
+      const travel = Math.min(nextHit ? nextHit.value : remainingDistance, remainingDistance);
+
+      for (const ratio of [0.28, 0.52, 0.76]) {
+        const point = {
+          x: current.x + ray.x * travel * ratio,
+          y: current.y + ray.y * travel * ratio,
+        };
+        const cell = worldToNearestCell(point.x, point.y, this.gridLayout);
+        const key = cellKey(cell.row, cell.col);
+
+        if (
+          cell.row >= 1
+          && cell.row < this.gridLayout.maxRows - 1
+          && !usedCells.has(key)
+        ) {
+          usedCells.add(key);
+          cells.push(cell);
+        }
+      }
+
+      current = {
+        x: current.x + ray.x * travel,
+        y: current.y + ray.y * travel,
+      };
+      remainingDistance -= travel;
+
+      if (!nextHit || nextHit.type === 'top' || bounceCount >= LASER_BEAM_MAX_BOUNCES) {
+        break;
+      }
+
+      ray = {
+        x: -ray.x,
+        y: ray.y,
+      };
+      bounceCount += 1;
+    }
+
+    return cells;
   }
 
   canAcceptAimInput() {
@@ -683,11 +1028,11 @@ export class Game {
 
     const bounds = getWallBounds(this.gridLayout);
     const radius = this.gridLayout.bubbleRadius * 0.92;
-    const origin = this.activeShotOrigin ?? {
+    const origin = this.activeShotOrigin || {
       x: this.launcher.launchX,
       y: this.launcher.launchY,
     };
-    let ray = normalizeDirection(this.activeShotDirection ?? this.aimDirection);
+    let ray = normalizeDirection(this.activeShotDirection || this.aimDirection);
     let current = { ...origin };
     let remainingDistance = this.height * LASER_BEAM_MAX_DISTANCE_FACTOR;
     let bounceCount = 0;
@@ -720,7 +1065,7 @@ export class Game {
       const nextHit = distances
         .filter((distance) => distance.value > 0.001)
         .sort((a, b) => a.value - b.value)[0];
-      const travel = Math.min(nextHit?.value ?? remainingDistance, remainingDistance);
+      const travel = Math.min(nextHit ? nextHit.value : remainingDistance, remainingDistance);
       const end = {
         x: current.x + ray.x * travel,
         y: current.y + ray.y * travel,
@@ -1116,7 +1461,7 @@ export class Game {
     const margin = Math.max(10, this.width * 0.025);
     const gap = 8;
     const smallHeight = Math.max(36, Math.min(44, this.height * 0.052));
-    const safeTop = this.gridLayout?.hudHeight
+    const safeTop = this.gridLayout && this.gridLayout.hudHeight
       ? Math.max(8, (this.gridLayout.hudHeight - smallHeight) / 2)
       : 10;
 
@@ -1206,6 +1551,32 @@ export class Game {
           y,
         },
       );
+
+      if (this.debugEnabled) {
+        const debugPanelLineCount = 6;
+        const debugHudHeight = this.gridLayout ? this.gridLayout.hudHeight || 0 : 0;
+        const debugPanelY = Math.max(10, debugHudHeight + 8);
+        const debugPanelHeight = 14 + debugPanelLineCount * 17;
+        const presetButtonWidth = Math.min(96, Math.max(78, (this.width - 28 - gap) / 2));
+        const presetButtonHeight = Math.max(28, Math.min(34, this.height * 0.04));
+        const presetX = 10;
+        const presetY = debugPanelY + debugPanelHeight + 8;
+
+        DEBUG_SCENARIOS.forEach((scenario, index) => {
+          const column = index % 2;
+          const row = Math.floor(index / 2);
+
+          controls.push({
+            action: `debugScenario:${scenario.id}`,
+            height: presetButtonHeight,
+            label: scenario.label,
+            role: this.debugScenarioId === scenario.id ? 'toggleOn' : 'secondary',
+            width: presetButtonWidth,
+            x: presetX + column * (presetButtonWidth + gap),
+            y: presetY + row * (presetButtonHeight + 8),
+          });
+        });
+      }
     }
 
     return controls;
@@ -1221,6 +1592,15 @@ export class Game {
       controls: this.getControls(),
       currentBubble: this.currentBubble,
       debugEnabled: this.debugEnabled,
+      debugScenarioId: this.debugScenarioId,
+      debugScenarioLabel: (() => {
+        const scenario = DEBUG_SCENARIOS.find((scenario) => (
+          scenario.id === this.debugScenarioId
+        ));
+
+        return scenario ? scenario.label : '';
+      })(),
+      debugScenarios: DEBUG_SCENARIOS,
       dpr: this.dpr,
       elapsed: this.elapsed,
       effects: this.effects,
